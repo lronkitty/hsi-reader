@@ -48,6 +48,11 @@ WAVELENGTH_CONFIGS = {
         703.4049, 708.6775, 713.9553, 719.238
     ],
     'hsidrive20': np.linspace(600.0, 975.0, 25).tolist(), # 25 bands, sensor range 600-975nm
+    # Approximate Figure S1 response peaks, not calibrated channel centers.
+    'beyondrgb': {
+        12: [400.0, 420.0, 450.0, 470.0, 510.0, 530.0, 550.0, 590.0, 640.0, 660.0, 680.0, 710.0],
+        16: [400.0, 420.0, 450.0, 470.0, 510.0, 530.0, 550.0, 590.0, 640.0, 660.0, 680.0, 710.0, 680.0, 520.0, 630.0, 530.0],
+    },
     'hotrednir': np.linspace(600.0, 850.0, 15).tolist(),  # Estimated centers for the 15 channels returned by the legacy 4x4 mosaic decoder
     'arad_1k_31': [400.0 + 10.0 * i for i in range(31)], # 400-700nm, 31 bands
     'arad_1k_16': np.linspace(400.0, 1000.0, 16).tolist(), # 16-band product, nominal 400-1000nm range

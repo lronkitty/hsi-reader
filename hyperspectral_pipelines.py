@@ -76,6 +76,7 @@ class LoadHyperspectralImage:
         rgb_wavelengths=None,
         rgb_value_mode='display',
         allow_estimated_wavelengths=False,
+        beyondrgb_band_count=12,
     ):
         self.dataset_type = dataset_type.lower()
         self.to_float32 = to_float32
@@ -84,6 +85,9 @@ class LoadHyperspectralImage:
         self.rgb_wavelengths = rgb_wavelengths
         self.rgb_value_mode = rgb_value_mode
         self.allow_estimated_wavelengths = bool(allow_estimated_wavelengths)
+        if beyondrgb_band_count not in (12, 16):
+            raise ValueError("beyondrgb_band_count must be 12 or 16.")
+        self.beyondrgb_band_count = int(beyondrgb_band_count)
         self.wavelengths = None
         self.wavelength_source = 'unavailable'
         self.wavelength_verified = None
@@ -96,6 +100,7 @@ class LoadHyperspectralImage:
         }
         self.bands = None
         self.channel_metadata = None
+        self.beyondrgb_metadata = None
 
     def _ensure_hwc(self, arr):
         """Ensure the numpy array is in (H, W, C) format."""
@@ -409,10 +414,24 @@ class LoadHyperspectralImage:
             if self.dataset_type == 'beyondrgb':
                 if 'MIS' not in hf:
                     raise ValueError("BeyondRGB HDF5 file has no documented 'MIS' CFA mosaic dataset.")
-                arr = self._unpack_beyondrgb_cfa(np.asarray(hf['MIS']))
-                # The local release contains no numerical filter-response table.
-                # Channel index is spectrally ordered per the official supplement,
-                # but assigning nominal nm centers would invent wavelength data.
+                mosaic = np.asarray(hf['MIS'])
+                decoded_cube = self._unpack_beyondrgb_cfa(mosaic)
+                if decoded_cube.shape[-1] != 16:
+                    raise ValueError(
+                        f"BeyondRGB CFA decoder returned {decoded_cube.shape[-1]} channels; expected 16."
+                    )
+                # Always unpack the complete CFA before optionally filtering bands.
+                effective_count = self.beyondrgb_band_count
+                arr = decoded_cube[..., :effective_count]
+                self.beyondrgb_metadata = {
+                    'original_cfa_shape': list(mosaic.shape),
+                    'decoded_cube_shape': list(decoded_cube.shape),
+                    'original_band_count': 16,
+                    'effective_band_count': effective_count,
+                    'retained_band_indices': list(range(effective_count)),
+                    'removed_band_indices': list(range(effective_count, 16)),
+                    'filter_operation': f'unpack full 4x4 CFA, then retain cube[..., :{effective_count}]',
+                }
                 raw_wavelengths = None
             return arr, raw_wavelengths
 
@@ -534,6 +553,7 @@ class LoadHyperspectralImage:
         # Metadata belongs to one load call; a failed or subsequent call must
         # not expose descriptors from a previous cube.
         self.channel_metadata = None
+        self.beyondrgb_metadata = None
         self.wavelength_source = 'unavailable'
         self.wavelength_verified = None
         self.spectral_axis = -1
@@ -703,9 +723,6 @@ class LoadHyperspectralImage:
                 img_path=file_path,
                 header_wavelengths=header_wavelengths
             )
-        if self.dataset_type == 'beyondrgb':
-            self.wavelengths = []  # CFA channel order is known; numerical centers are not locally available.
-
         # Keep the returned wavelength vector for display and compatibility,
         # but do not use range-interpolated estimates for spectral band matching.
         path_lower = file_path.replace('\\', '/').lower()
@@ -714,7 +731,10 @@ class LoadHyperspectralImage:
             and len(header_wavelengths) == num_channels
             and np.all(np.isfinite(np.asarray(header_wavelengths, dtype=np.float64)))
         )
-        if self.dataset_type == 'beyondrgb' or not self.wavelengths:
+        if self.dataset_type == 'beyondrgb' and num_channels in (12, 16) and len(self.wavelengths) == num_channels:
+            self.wavelength_source = 'figure_s1_approximate_peak_estimates'
+            self.wavelength_verified = False
+        elif not self.wavelengths:
             self.wavelength_source = 'unavailable'
             self.wavelength_verified = None
         elif self.dataset_type == 'ghifvd' and '/pca/' in path_lower:
@@ -820,6 +840,12 @@ class LoadHyperspectralImage:
                 and self.rgb_mode in {'visible', 'non_visible'}
             )
             source_wavelengths = self.wavelengths if (known_vector or allow_estimated_match) else None
+            rgb_channel_indices = None
+            if self.dataset_type == 'beyondrgb' and self.rgb_mode == 'auto':
+                # This is an explicit band-index profile, not wavelength
+                # matching; the approximate centers remain marked estimated.
+                source_wavelengths = self.wavelengths
+                rgb_channel_indices = [9, 6, 2]
             if self.dataset_type == 'hyper_skin' and num_channels == 31 and ('/vis/' in path_lower or '/nir/' in path_lower):
                 known_vector = False
                 source_wavelengths = self.wavelengths if allow_estimated_match else None
@@ -863,6 +889,7 @@ class LoadHyperspectralImage:
                 wavelength_source=wavelength_source,
                 wavelength_verified=self.wavelength_verified,
                 allow_estimated_wavelengths=self.allow_estimated_wavelengths,
+                channel_indices=rgb_channel_indices,
             )
             spectral_channel_count = img.shape[-1]
             source_hsi_shape = list(img.shape)
@@ -918,6 +945,61 @@ class LoadHyperspectralImage:
                 })
             if self.dataset_type == 'beyondrgb':
                 self.channel_metadata['false_rgb']['spatial_sampling'] = 'selected CFA phases; no demosaicing or registration'
+
+        if self.dataset_type == 'beyondrgb':
+            cfa_phase_offsets = [
+                [3, 0], [2, 0], [3, 1], [2, 1], [3, 2], [2, 2], [3, 3], [2, 3],
+                [1, 0], [0, 0], [1, 1], [0, 1], [1, 2], [0, 2], [1, 3], [0, 3],
+            ]
+            filter_metadata = dict(self.beyondrgb_metadata or {})
+            filter_metadata.update({
+                'original_band_count': 16,
+                'effective_band_count': self.beyondrgb_band_count,
+                'retained_band_indices': list(range(self.beyondrgb_band_count)),
+                'removed_band_indices': list(range(self.beyondrgb_band_count, 16)),
+                'wavelength_peaks_nm': list(self.wavelengths),
+                'wavelength_status': 'estimated',
+                'false_rgb_source_indices': [9, 6, 2] if self.append_rgb else None,
+            })
+            if self.channel_metadata is None:
+                # Keep the CFA/filter provenance available in no-append mode
+                # as well; shape and phase metadata describe the actual returned cube.
+                self.channel_metadata = {
+                    'spectral_channel_count': int(img.shape[-1]),
+                    'spectral_wavelengths_nm': list(self.wavelengths),
+                    **self.wavelength_metadata,
+                    'source': {
+                        'dataset_type': self.dataset_type,
+                        'file_path': os.path.abspath(file_path),
+                        'hsi_shape_hwc': list(img.shape),
+                        'dtype': str(img.dtype),
+                        'wavelength_source': self.wavelength_source,
+                        'wavelength_verified': self.wavelength_verified,
+                        'spatial_type': 'phase_sampled_cfa_cube',
+                        'reconstruction': f"unpack full 4x4 CFA; retain bands 0-{self.beyondrgb_band_count - 1}; no demosaicing or registration",
+                        'cfa_channel_phase_offsets_row_col': cfa_phase_offsets,
+                    },
+                    'appended_channel_descriptors': [],
+                    'false_rgb': None,
+                    'channel_order': f'{self.beyondrgb_band_count} retained MSI channels in original CFA band order',
+                    'spatial_alignment': {
+                        'method': 'CFA_phase_subsampled_without_demosaic',
+                        'source_spatial_shape': list(img.shape[:2]),
+                        'output_spatial_shape': list(img.shape[:2]),
+                        'appended_channels_share_source_pixel_grid': False,
+                        'cfa_channel_phase_offsets_row_col': cfa_phase_offsets,
+                    },
+                }
+            self.channel_metadata.update(filter_metadata)
+            self.channel_metadata['source'].update({
+                key: value for key, value in filter_metadata.items()
+                if key in {'original_cfa_shape', 'decoded_cube_shape', 'original_band_count',
+                           'effective_band_count', 'retained_band_indices', 'removed_band_indices',
+                           'filter_operation'}
+            })
+            self.channel_metadata['source']['wavelength_source'] = self.wavelength_source
+            self.channel_metadata['source']['wavelength_verified'] = False
+            self.channel_metadata['source']['wavelength_status'] = 'estimated'
 
         return img, self.wavelengths
 

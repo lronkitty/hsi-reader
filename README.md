@@ -50,6 +50,7 @@ The reader exposes `wavelength_source`, `wavelength_verified`, `wavelength_statu
 
 ### Dataset-specific validation notes
 
+- **BeyondRGB:** the source CFA has 16 filter phases. The reader always unpacks all 16 phases first; `beyondrgb_band_count=12` (default) retains Band 0–11, while `beyondrgb_band_count=16` keeps all bands. Approximate response peaks are `[400, 420, 450, 470, 510, 530, 550, 590, 640, 660, 680, 710, 680, 520, 630, 530]` nm. These are estimates from Figure S1, not calibrated centers. There is no demosaicing or physical subpixel registration; appended FalseRGB copies retained MSI indices 9, 6, and 2 exactly.
 - **HOT-2024 RedNIR:** the reader returns 15 channels from its 4×4 PNG mosaic. Channel centers are estimated from the nominal 600–850 nm range; use release-specific calibration data for precise spectral analysis.
 - **Hydrocarbon Spill:** checked ENVI headers consistently declare 20 channels in a non-monotonic order: channel 0 is 1000 nm, followed by 400–968.4 nm in channels 1–19. The loader preserves this order. FalseRGB selection can match measured header wavelengths to source indices; when automatic wavelength matching cannot select visible bands, it must not silently fall back to channel quantiles for this dataset.
 
@@ -57,7 +58,7 @@ The reader exposes `wavelength_source`, `wavelength_verified`, `wavelength_statu
 
 | Dataset Name | `--dataset` Key | # Bands | Wavelengths | Expected Extension | File Loader Detail / Required Accompanying Files |
 |---|---|---:|---|---|---|
-| BeyondRGB | `beyondrgb` | 16 | Numeric centers unavailable | `.h5` | HDF5 `MIS` 4×4 multispectral mosaic; reader unpacks 16 phase-sampled bands |
+| BeyondRGB | `beyondrgb` | 16 raw / 12 default (or 16) used | ≈400–710 nm for first 12; 400–710 nm estimated peaks for all 16 | `.h5` | HDF5 `MIS` 4×4 CFA; default output 484×646×12, or 484×646×15 with FalseRGB; optional 16-band output is 484×646×16 or ×19; FalseRGB uses Band 9/6/2 |
 | Cabbage & Eggplant | `cabbage_eggplant` | 277 | 399.86–949.60 nm | `.hdr` | ENVI header and paired binary cube; Reflectance and Radiance are distinct products |
 | CloudPatch-7 | `cloudpatch7` | 462 | 388.86–1004.46 nm | `.bip` | BIP patch requires its matching `.bip.hdr`; MAT inputs are also registered |
 | Cocoa Beans | `cocoa_beans` | 300 (some products 301) | 400–1000 nm | `.mat` | MATLAB spectral cube |

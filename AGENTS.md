@@ -44,7 +44,7 @@ For a new dataset, inspect the actual file layout, dtype, axis order, channel co
 - `HyperLeaf2024`: the source TIFF is `(204,48,352)`. Preserve the historical no-append CHW layout and report `spectral_axis=0`; RGB append explicitly transposes to HWC and reports `spectral_axis=-1`. Both paths must return the same 204 official centers in source order. Do not infer the uint16 scale multiplier/offset from observed sample extrema. Its FalseRGB display fallback normalizes only selected RGB channels.
 - `Hyper-Skin`: channel count and VIS/NIR/MSI product identify wavelength configuration. The full-cube path must remain separately qualified from products that have local samples.
 - `HFD100`: 31-channel truth and 256-channel full-cube products have different wavelength configurations.
-- `BeyondRGB`: HDF5 `MIS` contains a 2D 4×4 CFA mosaic. `_unpack_beyondrgb_cfa()` reversibly unpacks 16 phase-sampled channels from the documented pattern without interpolation, demosaicing or registration. Numerical spectral response centers are unavailable locally; keep wavelength centers unknown and preserve phase offsets/alignment metadata.
+- `BeyondRGB`: HDF5 `MIS` contains a 2D 4×4 CFA mosaic. `_unpack_beyondrgb_cfa()` must reversibly unpack all 16 phase channels before optionally retaining the first 12 or all 16; default is 12 via `beyondrgb_band_count`. The original 0-based phase map is unchanged. Approximate Figure S1 peak estimates are `[400,420,450,470,510,530,550,590,640,660,680,710,680,520,630,530]` nm and remain `wavelength_verified=False` / `wavelength_status=estimated`. Auto FalseRGB uses explicit indices `[9,6,2]`; it does not use wavelength-based matching or alter generic auto selection for other datasets. Preserve metadata for original/effective counts, removed indices and CFA phase offsets.
 - `Ladybird Cobbitty`: Pika-XC2 PNG rows are spectral samples and columns are spatial positions. The reader transposes one PNG to `(1, spatial, spectral)`, using `calibrations/pika-xc2/spectra.txt`. It intentionally does not combine neighboring scans into a scene.
 - `Almond/Pistachio/Garlic`: split-local dark/white references are validated before computing `(raw-dark)/(white-dark)`. Calibration requires matching headers, dimensions, wavelengths, exposure and acquisition date. If calibration cannot be established, display mode retains raw HSI values and falls back to RGB-only per-image normalization. Record the failure reason in metadata.
 
@@ -93,7 +93,9 @@ HSIFoodIngr-64 and Hydrocarbon Spill are distributed as archive collections. Eac
 
 ### BeyondRGB mosaic
 
-The `MIS.h5` two-dimensional sensor mosaic uses the 4×4 channel pattern documented in the dataset supplement. The loader unpacks it into 16 phase-sampled channels. It performs no demosaicing or cross-phase registration; no numeric spectral response table is present in the local files, so do not invent wavelength centers. FalseRGB channel choice relies on the declared channel order, and alignment metadata must state the CFA phase sampling caveat.
+The reader defaults to the first 12 bands; callers may request all 16 with `beyondrgb_band_count=16` in Python or `--beyondrgb-band-count 16` in the CLI. Both modes decode and verify the complete 16-channel CFA before filtering.
+
+The `MIS.h5` two-dimensional sensor mosaic uses the 4×4 channel pattern documented in the dataset supplement. Always unpack all 16 phase-sampled channels and validate/reinterleave against all 16 before filtering. The project then retains bands 0–11 and removes 12–15. Its 12 response-peak wavelengths are estimates, not calibrated centers. There is no demosaicing or physical cross-phase registration. FalseRGB copies retained indices `[9,6,2]`; metadata must preserve the channel filter, estimates and CFA phase alignment caveat.
 
 ### Ladybird Cobbitty scanline
 

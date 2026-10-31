@@ -120,7 +120,7 @@ def build_false_rgb(
     cube, wavelengths, dataset_type, mode="auto", rgb_wavelengths=None,
     *, profile=None, already_mapped=False, diagnostic_cube=None,
     value_mode="display", spectral_order_known=False, wavelength_source=None,
-    wavelength_verified=None, allow_estimated_wavelengths=False,
+    wavelength_verified=None, allow_estimated_wavelengths=False, channel_indices=None,
 ):
     """Build three H×W FalseRGB channels from an H×W×C spectral cube.
 
@@ -162,7 +162,23 @@ def build_false_rgb(
             effective_order_known = True
 
     selection_method = None
-    if mode == "auto" and wavelengths is not None and cube.shape[-1] >= 3:
+    if channel_indices is not None:
+        if mode != "auto":
+            raise ValueError("Explicit source channel indices are supported only with rgb_mode='auto'.")
+        raw_indices = np.asarray(channel_indices)
+        if raw_indices.shape != (3,) or not np.issubdtype(raw_indices.dtype, np.integer):
+            raise ValueError("False RGB channel_indices must contain exactly three integer indices in R,G,B order.")
+        indices = raw_indices.astype(np.int64, copy=False)
+        if np.any(indices < 0) or np.any(indices >= cube.shape[-1]) or np.unique(indices).size != 3:
+            raise ValueError("False RGB channel_indices must be three distinct indices within the source cube.")
+        selected_wavelengths = (
+            np.asarray(wavelengths, dtype=np.float64)[indices]
+            if wavelengths is not None else None
+        )
+        deviations = None
+        targets = None
+        selection_method = "explicit_channel_indices"
+    elif mode == "auto" and wavelengths is not None and cube.shape[-1] >= 3:
         try:
             indices, selected_wavelengths, deviations = _select_unique_bands(wavelengths, VISIBLE_RGB_WAVELENGTHS_NM)
             if np.all(deviations <= MAX_VISIBLE_WAVELENGTH_DEVIATION_NM):
@@ -350,6 +366,10 @@ def build_false_rgb(
         "spectral_order_known": effective_order_known,
         "wavelength_source": wavelength_source or ("provided_vector" if wavelengths is not None else "unavailable"),
         "wavelength_verified": wavelength_verified,
+        "wavelength_status": (
+            "verified" if wavelength_verified is True else
+            ("estimated" if wavelength_verified is False else "unknown")
+        ),
         "allow_estimated_wavelengths": bool(allow_estimated_wavelengths),
         "degeneracy": degeneracy,
         "target_wavelengths_nm": None if targets is None else targets.tolist(),

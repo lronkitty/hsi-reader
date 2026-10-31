@@ -64,6 +64,7 @@ def load_hypervision_matrix(
     rgb_value_mode='display',
     allow_estimated_wavelengths=False,
     return_metadata=False,
+    beyondrgb_band_count=12,
 ):
     """
     Loads a hyperspectral image and processes it into the exact matrix shape and scale
@@ -110,6 +111,7 @@ def load_hypervision_matrix(
         rgb_wavelengths=rgb_wavelengths,
         rgb_value_mode=rgb_value_mode,
         allow_estimated_wavelengths=allow_estimated_wavelengths,
+        beyondrgb_band_count=beyondrgb_band_count,
     )
     img, wavelengths = loader.load(file_path)
 
@@ -169,6 +171,7 @@ if __name__ == '__main__':
     parser.add_argument('--rgb-value-mode', choices=['copy_hsi', 'display'], default='display', help="Map appended RGB to [0,255]; copy_hsi preserves source values.")
     parser.add_argument('--rgb-wavelengths', type=float, nargs=3, metavar=('R_NM', 'G_NM', 'B_NM'), help="Explicit R,G,B target wavelengths; required for non_visible mode.")
     parser.add_argument('--allow-estimated-wavelengths', action='store_true', help="Allow visible/non-visible wavelength matching against a range-interpolated wavelength estimate.")
+    parser.add_argument('--beyondrgb-band-count', type=int, choices=[12, 16], default=12, help="BeyondRGB effective MSI channels (12 by default; 16 keeps all CFA channels).")
 
     args = parser.parse_args()
 
@@ -183,6 +186,7 @@ if __name__ == '__main__':
             rgb_value_mode=args.rgb_value_mode,
             allow_estimated_wavelengths=args.allow_estimated_wavelengths,
             return_metadata=args.append_rgb,
+            beyondrgb_band_count=args.beyondrgb_band_count,
         )
         if args.append_rgb:
             matrix, wavelengths, metadata = result

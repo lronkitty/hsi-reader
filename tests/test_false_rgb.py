@@ -133,31 +133,87 @@ class FalseRgbTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "divisible by four"):
             LoadHyperspectralImage._unpack_beyondrgb_cfa(np.zeros((5, 8)))
 
-    def test_real_beyondrgb_cfa_sample_loads_without_demosaicing(self):
+    def test_beyondrgb_explicit_false_rgb_indices_keep_estimates_unverified(self):
+        wavelengths = [400, 420, 450, 470, 510, 530, 550, 590, 640, 660, 680, 710]
+        cube = np.arange(2 * 3 * 12, dtype=np.float32).reshape(2, 3, 12)
+        rgb, metadata = build_false_rgb(
+            cube,
+            wavelengths,
+            "beyondrgb",
+            mode="auto",
+            channel_indices=[9, 6, 2],
+            wavelength_source="figure_s1_approximate_peak_estimates",
+            wavelength_verified=False,
+            value_mode="copy_hsi",
+        )
+        np.testing.assert_array_equal(rgb, cube[..., [9, 6, 2]])
+        self.assertEqual(metadata["selection_method"], "explicit_channel_indices")
+        self.assertEqual(metadata["source_channel_indices"], [9, 6, 2])
+        self.assertEqual(metadata["source_wavelengths_nm"], [660.0, 550.0, 450.0])
+        self.assertFalse(metadata["wavelength_verified"])
+
+    def test_real_beyondrgb_nt_wt_support_12_or_16_bands_and_aligned_false_rgb(self):
+        self.assertEqual(LoadHyperspectralImage("beyondrgb").beyondrgb_band_count, 12)
         root = DATASET_ROOT / "BeyondRGB/clb/BLUE_blue/10_light7"
         paths = [root / "NT/MIS.h5", root / "WT/MIS.h5"]
         if not all(path.is_file() for path in paths):
-            self.skipTest("real BeyondRGB CFA sample is not mounted")
+            self.skipTest("real BeyondRGB NT/WT CFA samples are not mounted")
+        pattern = np.array([[9, 11, 13, 15], [8, 10, 12, 14], [1, 3, 5, 7], [0, 2, 4, 6]])
+        wavelength_profile = [400, 420, 450, 470, 510, 530, 550, 590, 640, 660, 680, 710, 680, 520, 630, 530]
         for path in paths:
             with self.subTest(sample=path.parent.name):
-                matrix, wavelengths, metadata = load_hypervision_matrix(
-                    str(path), "beyondrgb", append_rgb=True, rgb_value_mode="copy_hsi", return_metadata=True
-                )
-                self.assertEqual(matrix.shape, (484, 646, 19))
-                self.assertEqual(matrix.dtype, np.float32)
-                self.assertEqual(wavelengths, [])
-                self.assertEqual(metadata["source"]["wavelength_source"], "unavailable")
-                self.assertEqual(metadata["source"]["spatial_type"], "phase_sampled_cfa_cube")
-                self.assertIn("no demosaicing", metadata["source"]["reconstruction"])
-                self.assertEqual(metadata["spatial_alignment"]["method"], "CFA_phase_subsampled_without_demosaic")
-                self.assertFalse(metadata["spatial_alignment"]["appended_channels_share_source_pixel_grid"])
-                self.assertEqual(len(metadata["source"]["cfa_channel_phase_offsets_row_col"]), 16)
-                indices = metadata["false_rgb"]["source_channel_indices"]
-                self.assertEqual(metadata["false_rgb"]["selection_method"], "ordered_channel_quantiles")
-                self.assertEqual(metadata["false_rgb"]["wavelength_source"], "unavailable")
-                np.testing.assert_array_equal(matrix[..., -3:], matrix[..., indices])
-                self.assertTrue(np.isfinite(matrix).all())
-                del matrix, wavelengths, metadata
+                with h5py.File(path, "r") as handle:
+                    mosaic = np.asarray(handle["MIS"])
+                self.assertEqual(mosaic.shape, (1936, 2584))
+                decoded16 = LoadHyperspectralImage._unpack_beyondrgb_cfa(mosaic)
+                self.assertEqual(decoded16.shape, (484, 646, 16))
+                # Reinterleave all 16 phase channels before any band filtering.
+                reinterleaved = np.empty_like(mosaic)
+                for row in range(4):
+                    for col in range(4):
+                        reinterleaved[row::4, col::4] = decoded16[..., pattern[row, col]]
+                np.testing.assert_array_equal(reinterleaved, mosaic)
+                for band_count in (12, 16):
+                    expected_cube = decoded16[..., :band_count].astype(np.float32)
+                    expected_wavelengths = wavelength_profile[:band_count]
+                    expected_removed = list(range(band_count, 16))
+                    for append_rgb in (False, True):
+                        loader = LoadHyperspectralImage(
+                            "beyondrgb", append_rgb=append_rgb, rgb_value_mode="copy_hsi",
+                            to_float32=True, beyondrgb_band_count=band_count,
+                        )
+                        output, wavelengths = loader.load(str(path))
+                        self.assertEqual(output.shape, (484, 646, band_count + (3 if append_rgb else 0)))
+                        self.assertEqual(output.dtype, np.float32)
+                        self.assertTrue(np.isfinite(output).all())
+                        np.testing.assert_array_equal(output[..., :band_count], expected_cube)
+                        self.assertEqual(wavelengths, expected_wavelengths)
+                        self.assertFalse(loader.wavelength_verified)
+                        self.assertEqual(loader.wavelength_metadata["wavelength_status"], "estimated")
+                        metadata = loader.channel_metadata
+                        self.assertEqual(metadata["original_band_count"], 16)
+                        self.assertEqual(metadata["effective_band_count"], band_count)
+                        self.assertEqual(metadata["removed_band_indices"], expected_removed)
+                        self.assertEqual(metadata["wavelength_peaks_nm"], expected_wavelengths)
+                        self.assertEqual(metadata["wavelength_status"], "estimated")
+                        self.assertEqual(metadata["source"]["decoded_cube_shape"], [484, 646, 16])
+                        self.assertEqual(metadata["spatial_alignment"]["method"], "CFA_phase_subsampled_without_demosaic")
+                        if append_rgb:
+                            np.testing.assert_array_equal(output[..., -3:], output[..., [9, 6, 2]])
+                            self.assertEqual(metadata["false_rgb_source_indices"], [9, 6, 2])
+                            self.assertEqual(metadata["false_rgb"]["selection_method"], "explicit_channel_indices")
+                            self.assertEqual(metadata["false_rgb"]["source_wavelengths_nm"], [660.0, 550.0, 450.0])
+                            self.assertEqual(metadata["false_rgb"]["wavelength_status"], "estimated")
+                    wrapper, wrapper_wavelengths, wrapper_metadata = load_hypervision_matrix(
+                        str(path), "beyondrgb", append_rgb=False, return_metadata=True,
+                        beyondrgb_band_count=band_count,
+                    )
+                    self.assertEqual(wrapper.shape, (484, 646, band_count))
+                    self.assertEqual(wrapper.dtype, np.float32)
+                    self.assertEqual(wrapper_wavelengths, wavelength_profile[:band_count])
+                    self.assertEqual(wrapper_metadata["effective_band_count"], band_count)
+                    self.assertTrue(np.isfinite(wrapper).all())
+                del mosaic, decoded16, reinterleaved
 
     def test_real_ladybird_png_is_one_native_scanline_with_local_wavelengths(self):
         path = DATASET_ROOT / "Ladybird_Cobbitty_2017_Brassica_Dataset/example_code/autonomous/20171101_week_04/bed_01/pika-xc2/20171101T004558.420196.png"
