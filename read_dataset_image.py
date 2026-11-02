@@ -47,7 +47,6 @@ DATASET_EXTENSIONS = {
 
     # Image formats (.png, .jpg, .tif, .tiff)
     'hotvis': '.png', 'hotnir': '.png', 'hotrednir': '.png', 'near_infrared': '.png', 'uwa_face': '.png',
-    'ladybird_cobbitty': '.png',
     'hsiroad': '.tif', 'gans_grape': '.tif', 'hsi1': '.tiff', 'hyperleaf2024': '.tiff', 'tohs': '.tiff',
 
     # Custom format

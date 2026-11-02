@@ -460,30 +460,27 @@ class LoadHyperspectralImage:
                 cube[..., pattern[row, col]] = tiles[..., row, col]
         return cube
 
-    @staticmethod
-    def _load_ladybird_scanline(file_path):
-        """Read one native Pika-XC2 scan as (1, spatial, spectral), no stacking."""
-        normalized = Path(file_path).resolve()
-        roots = [p for p in (normalized, *normalized.parents) if p.name == 'Ladybird_Cobbitty_2017_Brassica_Dataset']
-        if len(roots) != 1:
-            raise ValueError("Ladybird scanline must be located under exactly one Ladybird dataset root.")
-        dataset_root = roots[0]
-        wavelengths_path = dataset_root / 'calibrations' / 'pika-xc2' / 'spectra.txt'
-        if not wavelengths_path.is_file():
-            raise FileNotFoundError(f"Ladybird Pika-XC2 wavelength calibration is missing: {wavelengths_path}")
-        raw = cv2.imread(str(normalized), cv2.IMREAD_UNCHANGED)
-        if raw is None or raw.ndim != 2:
-            raise ValueError(f"Ladybird Pika-XC2 input must be a single-channel PNG; got {getattr(raw, 'shape', None)}.")
-        wavelengths = np.loadtxt(wavelengths_path, dtype=np.float64).reshape(-1)
-        # The dataset's own example notebook states each image row is one
-        # wavelength and columns are spatial samples.
-        if wavelengths.size != raw.shape[0] or not np.all(np.isfinite(wavelengths)):
-            raise ValueError(
-                f"Ladybird wavelength vector has {wavelengths.size} entries for {raw.shape[0]} spectral rows."
-            )
-        if wavelengths.size > 1 and not np.all(np.diff(wavelengths) > 0):
-            raise ValueError("Ladybird spectra.txt must be strictly increasing in spectral row order.")
-        return raw.T[np.newaxis, ...], wavelengths.tolist()
+    # Disabled: this reader was removed from the supported dataset registry.
+    # @staticmethod
+    # def _load_ladybird_scanline(file_path):
+    #     """Read one native scan as (1, spatial, spectral), without stacking."""
+    #     normalized = Path(file_path).resolve()
+    #     roots = [p for p in (normalized, *normalized.parents)
+    #              if p.name == 'Ladybird_Cobbitty_2017_Brassica_Dataset']
+    #     if len(roots) != 1:
+    #         raise ValueError("Scanline must be under exactly one dataset root.")
+    #     wavelengths_path = roots[0] / 'calibrations' / 'pika-xc2' / 'spectra.txt'
+    #     if not wavelengths_path.is_file():
+    #         raise FileNotFoundError(f"Wavelength calibration is missing: {wavelengths_path}")
+    #     raw = cv2.imread(str(normalized), cv2.IMREAD_UNCHANGED)
+    #     if raw is None or raw.ndim != 2:
+    #         raise ValueError(f"Expected a single-channel PNG; got {getattr(raw, 'shape', None)}.")
+    #     wavelengths = np.loadtxt(wavelengths_path, dtype=np.float64).reshape(-1)
+    #     if wavelengths.size != raw.shape[0] or not np.all(np.isfinite(wavelengths)):
+    #         raise ValueError("Wavelength count does not match spectral rows.")
+    #     if wavelengths.size > 1 and not np.all(np.diff(wavelengths) > 0):
+    #         raise ValueError("Wavelengths must increase in spectral row order.")
+    #     return raw.T[np.newaxis, ...], wavelengths.tolist()
 
     def _load_tiff_file(self, file_path):
         """Load .tiff/.tif hyperspectral file."""
@@ -568,7 +565,6 @@ class LoadHyperspectralImage:
 
         ext = os.path.splitext(file_path)[1].lower()
         header_wavelengths = None
-        ladybird_scanline = False
         envi_source = False
 
         if self.dataset_type == 'hyperblood':
@@ -639,10 +635,8 @@ class LoadHyperspectralImage:
             else:
                 raise ValueError(f"Binary file without ENVI header: {file_path}")
         elif ext in ['.png', '.jpg', '.jpeg']:
-            if self.dataset_type == 'ladybird_cobbitty':
-                img, header_wavelengths = self._load_ladybird_scanline(file_path)
-                ladybird_scanline = True
-            elif self.dataset_type in ['near_infrared', 'uwa_face']:
+            # Ladybird scanline loading is disabled; it is no longer registered.
+            if self.dataset_type in ['near_infrared', 'uwa_face']:
                 img, header_wavelengths = self._load_image_stack(file_path)
             else:
                 img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
@@ -668,8 +662,6 @@ class LoadHyperspectralImage:
             pass
         elif hyperleaf_transposed:
             img = np.transpose(img, (1, 2, 0))
-        elif ladybird_scanline:
-            pass
         elif envi_source:
             # ENVI readers already return (lines, samples, bands); preserve
             # that authoritative spectral axis instead of guessing from sizes.
@@ -759,8 +751,6 @@ class LoadHyperspectralImage:
                 self.wavelength_source = 'file_header'
             elif os.path.splitext(file_path)[1].lower() == '.mat':
                 self.wavelength_source = 'mat_wavelength_variable'
-            elif ladybird_scanline:
-                self.wavelength_source = 'dataset_spectra_txt'
             elif self.dataset_type in {'near_infrared', 'uwa_face'}:
                 self.wavelength_source = 'wavelength_tagged_filenames'
             else:
@@ -858,7 +848,7 @@ class LoadHyperspectralImage:
                 'hsifoodingr64', 'hyper_skin', 'hyperleaf2024',
                 'ugv_terrains', 'mobispectral', 'near_infrared', 'omhs', 'mineral_abundance',
                 'tohs', 'tecnalia', 'tokyotech', 'uwa_face', 'almond_pistachio_garlic', 'hyperpri', 'ghifvd',
-                'beyondrgb', 'ladybird_cobbitty',
+                'beyondrgb',
             }
             wavelength_order_known = False
             if known_vector and len(self.wavelengths) == img.shape[-1]:
@@ -912,13 +902,6 @@ class LoadHyperspectralImage:
                     'wavelength_source': false_rgb_metadata['wavelength_source'],
                     'wavelength_verified': self.wavelength_verified,
                     **({
-                        'spatial_type': 'single_scanline',
-                        'reconstruction': 'none',
-                        'scanline_count': 1,
-                        'spectral_direction': 'ascending wavelength in channel order',
-                        'wavelength_source': 'Ladybird dataset calibrations/pika-xc2/spectra.txt',
-                    } if ladybird_scanline else {}),
-                    **({
                         'spatial_type': 'phase_sampled_cfa_cube',
                         'reconstruction': '4x4 CFA unpack only; no demosaicing or registration',
                         'cfa_channel_phase_offsets_row_col': cfa_phase_offsets,
@@ -929,20 +912,13 @@ class LoadHyperspectralImage:
                 'false_rgb': false_rgb_metadata,
                 'channel_order': 'HSI spectral channels followed by R,G,B FalseRGB copies',
                 'spatial_alignment': {
-                    'method': ('CFA_phase_subsampled_without_demosaic' if self.dataset_type == 'beyondrgb' else ('same_native_scanline_samples' if ladybird_scanline else 'pixelwise_same_grid')),
+                    'method': ('CFA_phase_subsampled_without_demosaic' if self.dataset_type == 'beyondrgb' else 'pixelwise_same_grid'),
                     'source_spatial_shape': source_spatial_shape,
                     'output_spatial_shape': list(img.shape[:2]),
                     'appended_channels_share_source_pixel_grid': self.dataset_type != 'beyondrgb',
                     **({'cfa_channel_phase_offsets_row_col': cfa_phase_offsets} if self.dataset_type == 'beyondrgb' else {}),
                 },
             }
-            if ladybird_scanline:
-                self.channel_metadata.update({
-                    'spatial_type': 'single_scanline',
-                    'reconstruction': 'none',
-                    'scanline_count': 1,
-                    'spectral_direction': 'ascending wavelength in channel order',
-                })
             if self.dataset_type == 'beyondrgb':
                 self.channel_metadata['false_rgb']['spatial_sampling'] = 'selected CFA phases; no demosaicing or registration'
 

@@ -215,31 +215,32 @@ class FalseRgbTests(unittest.TestCase):
                     self.assertTrue(np.isfinite(wrapper).all())
                 del mosaic, decoded16, reinterleaved
 
-    def test_real_ladybird_png_is_one_native_scanline_with_local_wavelengths(self):
-        path = DATASET_ROOT / "Ladybird_Cobbitty_2017_Brassica_Dataset/example_code/autonomous/20171101_week_04/bed_01/pika-xc2/20171101T004558.420196.png"
-        if not path.is_file():
-            self.skipTest("real Ladybird Pika-XC2 sample is not mounted")
-        import cv2
-        raw = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-        calibration = path.parents[5] / "calibrations" / "pika-xc2" / "spectra.txt"
-        wavelengths = np.loadtxt(calibration)
-        matrix, resolved, metadata = load_hypervision_matrix(
-            str(path), "ladybird_cobbitty", append_rgb=True, rgb_value_mode="copy_hsi", return_metadata=True
-        )
-        self.assertEqual(raw.shape, (462, 1600))
-        self.assertEqual(matrix.shape, (1, 1600, 465))
-        self.assertEqual(resolved, wavelengths.tolist())
-        self.assertEqual(matrix.dtype, np.float32)
-        np.testing.assert_array_equal(matrix[0, :, :462], raw.T.astype(np.float32))
-        self.assertEqual(metadata["source"]["spatial_type"], "single_scanline")
-        self.assertEqual(metadata["source"]["reconstruction"], "none")
-        self.assertEqual(metadata["source"]["scanline_count"], 1)
-        self.assertIn("spectra.txt", metadata["source"]["wavelength_source"])
-        self.assertEqual(metadata["spatial_alignment"]["method"], "same_native_scanline_samples")
-        self.assertEqual(metadata["false_rgb"]["selection_method"], "visible_wavelengths")
-        indices = metadata["false_rgb"]["source_channel_indices"]
-        np.testing.assert_array_equal(matrix[..., -3:], matrix[..., indices])
-        self.assertTrue(np.isfinite(matrix).all())
+    # Disabled with the retired dataset reader:
+    # def test_real_ladybird_png_is_one_native_scanline_with_local_wavelengths(self):
+    #     path = DATASET_ROOT / "Ladybird_Cobbitty_2017_Brassica_Dataset/example_code/autonomous/20171101_week_04/bed_01/pika-xc2/20171101T004558.420196.png"
+    #     if not path.is_file():
+    #         self.skipTest("real sample is not mounted")
+    #     import cv2
+    #     raw = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    #     calibration = path.parents[5] / "calibrations" / "pika-xc2" / "spectra.txt"
+    #     wavelengths = np.loadtxt(calibration)
+    #     matrix, resolved, metadata = load_hypervision_matrix(
+    #         str(path), "ladybird_cobbitty", append_rgb=True, rgb_value_mode="copy_hsi", return_metadata=True
+    #     )
+    #     self.assertEqual(raw.shape, (462, 1600))
+    #     self.assertEqual(matrix.shape, (1, 1600, 465))
+    #     self.assertEqual(resolved, wavelengths.tolist())
+    #     self.assertEqual(matrix.dtype, np.float32)
+    #     np.testing.assert_array_equal(matrix[0, :, :462], raw.T.astype(np.float32))
+    #     self.assertEqual(metadata["source"]["spatial_type"], "single_scanline")
+    #     self.assertEqual(metadata["source"]["reconstruction"], "none")
+    #     self.assertEqual(metadata["source"]["scanline_count"], 1)
+    #     self.assertIn("spectra.txt", metadata["source"]["wavelength_source"])
+    #     self.assertEqual(metadata["spatial_alignment"]["method"], "same_native_scanline_samples")
+    #     self.assertEqual(metadata["false_rgb"]["selection_method"], "visible_wavelengths")
+    #     indices = metadata["false_rgb"]["source_channel_indices"]
+    #     np.testing.assert_array_equal(matrix[..., -3:], matrix[..., indices])
+    #     self.assertTrue(np.isfinite(matrix).all())
 
     def test_real_ghifvd_pca_mat_uses_local_official_decoder(self):
         path = DATASET_ROOT / "GHIFVD/pca/internals_mushroom_SegmentedCroppedCompressed.mat"

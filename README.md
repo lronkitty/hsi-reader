@@ -2,7 +2,7 @@
 
 > **Recommended citation:** Guanyiman Fu et al., “HyperVision: A Channel-Adaptive Ground-Based Hyperspectral Vision Pre-trained Backbone,” arXiv:2605.17286, 2026. [Paper](https://arxiv.org/abs/2605.17286) · [BibTeX](#citation)
 
-Hyperspectral Image Reader V2 is a collection of readers for ground-based hyperspectral datasets. It brings together support for the datasets included in V1 and adds 28 more datasets. The readers convert supported file formats into NumPy cubes with a consistent `(H, W, C)` layout, resolve spectral wavelengths, and can append three RGB channels to an HSI cube. This repository contains the reader collection; it does not include the HyperVision backbone.
+Hyperspectral Image Reader V2 is a collection of readers for ground-based hyperspectral datasets. It brings together support for the datasets included in V1 and adds 27 more datasets. The readers convert supported file formats into NumPy cubes with a consistent `(H, W, C)` layout, resolve spectral wavelengths, and can append three RGB channels to an HSI cube. This repository contains the reader collection; it does not include the HyperVision backbone.
 
 ## Supported Datasets
 
@@ -85,7 +85,6 @@ The reader exposes `wavelength_source`, `wavelength_verified`, `wavelength_statu
 | TokyoTech | `tokyotech` | 59 | 400–980 nm | `.mat` | MATLAB visible/NIR spectral cube |
 | UWA Face | `uwa_face` | 33 | 400–720 nm | `.png` | Grayscale wavelength-slice stack in the same directory |
 | Almond/Pistachio/Garlic | `almond_pistachio_garlic` | 224 | 400.67–997.99 nm | `.hdr` | ENVI `data` cube; optional fixed calibration requires split-local `WHITEREF` and `DARKREF` pairs |
-| Ladybird Cobbitty | `ladybird_cobbitty` | 462 | 390.2741–1009.571 nm | `.png` | Pika-XC2 spectral scan; calibration file `calibrations/pika-xc2/spectra.txt` is required |
 
 The support descriptions summarize the implemented formats and product limits. RGB display output is mapped to `[0,255]`; when a fixed scale is unavailable, selected RGB channels are normalized independently per image.
 
